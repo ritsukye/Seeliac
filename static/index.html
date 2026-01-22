@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seeliac</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Seeliac">
+
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0; padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    #cameraContainer {
+      position: relative;
+      width: 100%;
+      max-width: 400px;
+      aspect-ratio: 4/3;
+      background: black;
+      margin-top: 10px;
+    }
+
+    video, #capturedImage {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #capturedImage {
+      display: none;
+    }
+
+    #buttons {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 10px 15px;
+      font-size: 16px;
+      border-radius: 5px;
+      border: none;
+      background: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+
+    #resultOverlay {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.6);
+      color: white;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 16px;
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Seeliac</h2>
+  <h3>This application is for personal use, with no complete guarantee that it can identify whether a packaging is celiac safe.
+      This project is a work-in-progress.
+  </h3>
+
+  <div id="cameraContainer">
+    <video id="video" autoplay playsinline></video>
+    <img id="capturedImage" />
+    <div id="resultOverlay"></div>
+
+    <div id="buttons">
+      <button id="captureBtn">Capture</button>
+      <button id="retakeBtn" style="display:none;">Retake</button>
+    </div>
+  </div>
+
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <script>
+  const video = document.getElementById("video");
+  const capturedImage = document.getElementById("capturedImage");
+  const canvas = document.getElementById("canvas");
+  const resultOverlay = document.getElementById("resultOverlay");
+  const captureBtn = document.getElementById("captureBtn");
+  const retakeBtn = document.getElementById("retakeBtn");
+
+  let stream;
+
+  //---------idle camera state, plays back live video stream from camera------------
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+    } catch (err) {
+      alert("Could not access camera: " + err);
+    }
+  }
+
+  //---------ui elements------------
+  function showCameraState() {
+    capturedImage.style.display = "none";
+    video.style.display = "block";
+    captureBtn.style.display = "inline-block";
+    retakeBtn.style.display = "none";
+    resultOverlay.style.display = "none";
+  }
+
+  function showCapturedState() {
+    capturedImage.style.display = "block";
+    video.style.display = "none";
+    captureBtn.style.display = "none";
+    retakeBtn.style.display = "inline-block";
+    resultOverlay.style.display = "block";
+  }
+
+  function updateResult(text) {
+    resultOverlay.style.display = "block";
+    resultOverlay.innerText = text;
+  }
+
+  //----------camera/stream control-----------
+  function pauseStream() {
+    if (!stream) return;
+    stream.getTracks().forEach(track => track.stop());
+  }
+
+  function resumeStream() {
+    startCamera();
+  }
+
+  //----------capture/analyze image-----------
+  function captureImage() {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    const dataURL = canvas.toDataURL("image/jpeg");
+    capturedImage.src = dataURL;
+  }
+
+  function analyzeImage() {
+    canvas.toBlob(blob => {
+      if (!blob) return;
+
+      const form = new FormData();
+      form.append("file", blob, "scan.jpg");
+
+      fetch("/analyze", { method: "POST", body: form })
+        .then(r => r.json())
+        .then(d => {
+          updateResult(
+            d.safe ? "✅ Celiac Safe" : "❌ Contains: " + d.found.join(", ")
+          );
+        })
+        .catch(err => {
+          console.error(err);
+          updateResult("Error scanning");
+        });
+    }, "image/jpeg");
+  }
+
+  function capture() {
+    captureImage();
+    pauseStream();
+    showCapturedState();
+    updateResult("Scanning...");
+    analyzeImage();
+  }
+
+  function retake() {
+    showCameraState();
+    resumeStream();
+  }
+
+  //---------events------------
+  captureBtn.addEventListener("click", capture);
+  retakeBtn.addEventListener("click", retake);
+
+  startCamera();
+  </script>
+
+  </body>
+</html>
